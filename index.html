@@ -305,7 +305,7 @@
     <!-- START -->
     <div class="overlay" id="startOverlay">
       <div class="wordmark"><span class="skin">SKIN</span><span class="dyne">DYNE SIDE</span></div>
-      <p class="tagline">50 seconds. Things pop up all over the room — smash them before they're gone, and it gets faster every 10 seconds. Then the heads come at your ship for another 50 — move to line up and fire, 3 hits and it's over. Misses cost more each tier — 100 to start, up to 400 at max rage.</p>
+      <p class="tagline">50 seconds. Things pop up all over the room — smash them before they're gone, and it gets faster every 10 seconds. Then the heads come at your ship for 68 more — move to line up and fire, 3 hits and it's over. Misses cost more each tier — 100 to start, up to 400 at max rage.</p>
       <button class="btn" id="startBtn">ENTER THE RAGE ROOM</button>
       <div class="hint" id="bestHint"></div>
     </div>
@@ -359,10 +359,11 @@
   // (same tiers of speed as the rage room, same 10s-per-tier schedule,
   // timed fresh from wave 2's own start) — only the ship's fire rate and
   // hit-box sizing are fixed constants here.
-  var WAVE2_SECONDS   = 50;   // ship level also runs 50s, same tier schedule
+  var WAVE2_SECONDS   = 68;   // ship level runs 18s longer than the rage room; same 10s-per-tier schedule, just holds at max rage longer
   var WAVE2_FIRE_MS   = 230;  // ship auto-fire rate
   var WAVE2_BULLET_MS = 480;  // time for a bullet to cross the stage
   var WAVE2_FACE_W    = 15;   // falling face width, % of stage
+  var WAVE2_COLUMN_SPACING = 6; // side-by-side gap between fan columns, % of stage
   var SHIP_HALF_W      = 7;    // ship hit-box half-width, % of stage
   var HIT_X_TOL         = 9;    // bullet/face collision x tolerance, % of stage
   var HIT_Y_TOL         = 7;    // bullet/face collision y tolerance, % of stage
@@ -482,7 +483,7 @@
   }
   (function initBestHint(){
     var b = loadBest();
-    bestHint.textContent = b ? ("Best score " + b.score + " · best combo x" + b.combo) : "50 seconds, then 50 more. Misses cost more every tier — don't let anything slip.";
+    bestHint.textContent = b ? ("Best score " + b.score + " · best combo x" + b.combo) : "50 seconds, then 68 more. Misses cost more every tier — don't let anything slip.";
   })();
 
   // ---------------- audio ----------------
@@ -857,37 +858,38 @@
     if(bullet.el && bullet.el.parentNode) bullet.el.remove();
   }
 
-  // Combo-scaled fan shot: a 10+ hit streak fires a 3-way fan, a 20+ streak
-  // fires a 6-way fan. Reads state.combo live, so it naturally drops back
-  // to a single shot the moment the streak breaks (same combo the rage
-  // room and wave 2 hits already track).
-  function fanAngles(n){
-    if(n <= 1) return [0];
-    var maxSpread = n >= 6 ? 56 : 34;
-    var angles = [];
-    for(var i=0;i<n;i++){
-      var t = (i/(n-1)) - 0.5;
-      angles.push(t * maxSpread);
-    }
-    return angles;
-  }
-
-  function spawnBullet(angleDeg, originX){
+  // Combo-scaled volley: a 10+ hit streak fires 3 shots side by side (one
+  // straight column at the ship, one on each side), a 20+ streak fires 6 —
+  // the same 3 columns, now 2 shots deep each. Every shot travels straight
+  // up its own column, no fanning, so you still have to physically move
+  // the ship to line a column up with a target. Reads state.combo live, so
+  // it drops back to a single shot the moment
+  // the streak breaks (same combo the rage room and wave 2 hits track).
+  function spawnBullet(originX, topOffset){
+    var startTop = 90 - (topOffset || 0);
     var el = document.createElement("div");
     el.className = "bullet2";
     el.style.left = originX + "%";
-    el.style.top = "90%";
+    el.style.top = startTop + "%";
     wave2Layer.appendChild(el);
-    var dxTotal = 104 * Math.tan(angleDeg * Math.PI/180);
-    state.bullets2.push({ el:el, startX:originX, x:originX, top:90, dxTotal:dxTotal, startedAt: performance.now() });
+    state.bullets2.push({ el:el, x:originX, top:startTop, startTop:startTop, startedAt: performance.now() });
   }
 
   function fireBullet(){
     if(state.roundOver || state.phase !== 2) return;
-    var shotCount = 1;
-    if(state.combo >= 20) shotCount = 6;
-    else if(state.combo >= 10) shotCount = 3;
-    fanAngles(shotCount).forEach(function(angle){ spawnBullet(angle, state.shipX); });
+    var columns = [0];
+    var perColumn = 1;
+    if(state.combo >= 20){
+      columns = [-WAVE2_COLUMN_SPACING, 0, WAVE2_COLUMN_SPACING];
+      perColumn = 2;
+    } else if(state.combo >= 10){
+      columns = [-WAVE2_COLUMN_SPACING, 0, WAVE2_COLUMN_SPACING];
+      perColumn = 1;
+    }
+    columns.forEach(function(colOffset){
+      var x = Math.max(2, Math.min(98, state.shipX + colOffset));
+      for(var i=0;i<perColumn;i++){ spawnBullet(x, i*3.5); }
+    });
     playShot();
   }
 
@@ -987,10 +989,8 @@
       var b = state.bullets2[j];
       var bp = (now - b.startedAt) / WAVE2_BULLET_MS;
       if(bp >= 1){ removeBullet(b); continue; }
-      b.top = 90 - bp*104;
-      b.x = b.startX + bp*b.dxTotal;
+      b.top = b.startTop - bp*104;
       b.el.style.top = b.top + "%";
-      b.el.style.left = b.x + "%";
     }
 
     for(var bi=state.bullets2.length-1; bi>=0; bi--){
